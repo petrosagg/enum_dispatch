@@ -46,7 +46,8 @@ static ENUM_CONVERSION_IMPLS_DEFS: Lazy<Mutex<HashSet<UniqueItemId>>> =
 
 /// Store a trait definition for future reference.
 pub fn cache_trait(item: syn::ItemTrait) {
-    let uid = UniqueItemId::new(item.ident.to_string(), item.generics.type_params().count());
+    let num_generics = crate::supported_generics::num_supported_generics(&item.generics);
+    let uid = UniqueItemId::new(item.ident.to_string(), num_generics);
     TRAIT_DEFS
         .lock()
         .unwrap()
@@ -55,7 +56,8 @@ pub fn cache_trait(item: syn::ItemTrait) {
 
 /// Store an enum definition for future reference.
 pub fn cache_enum_dispatch(item: enum_dispatch_item::EnumDispatchItem) {
-    let uid = UniqueItemId::new(item.ident.to_string(), item.generics.type_params().count());
+    let num_generics = crate::supported_generics::num_supported_generics(&item.generics);
+    let uid = UniqueItemId::new(item.ident.to_string(), num_generics);
     ENUM_DEFS
         .lock()
         .unwrap()
