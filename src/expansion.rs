@@ -294,10 +294,35 @@ fn create_match_expr(
 ) -> syn::Expr {
     let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name);
 
+    let is_self_return = if let syn::ReturnType::Type(_, returntype) = &trait_method.sig.output {
+        match returntype.as_ref() {
+            syn::Type::Path(p) => {
+                if let Some(i) = p.path.get_ident() {
+                    i.to_string() == "Self"
+                } else {
+                    false
+                }
+            },
+            _ => false,
+        }
+    } else {
+        false
+    };
+
     // Creates a Vec containing a match arm for every enum variant
     let match_arms = enumvariants
         .iter()
         .map(|variant| {
+            let mut call = trait_fn_call.to_owned();
+
+            if is_self_return {
+                let variant_type = &variant.ty;
+                let from_call: syn::ExprCall = syn::parse_quote! {
+                    <Self as ::core::convert::From::<#variant_type>>::from(#call)
+                };
+                call = syn::Expr::from(from_call);
+            }
+
             let variant_name = &variant.ident;
             let attrs = variant
                 .attrs
@@ -313,7 +338,7 @@ fn create_match_expr(
                 },
                 guard: None,
                 fat_arrow_token: Default::default(),
-                body: Box::new(trait_fn_call.to_owned()),
+                body: Box::new(call),
                 comma: Some(Default::default()),
             }
         })
