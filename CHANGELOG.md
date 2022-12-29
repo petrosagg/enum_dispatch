@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.9
+
+- Add support for const generics (#51, !25)
+
 ## 0.3.8
 
 - Preserve attributes from inner fields of enum variants (!27)
