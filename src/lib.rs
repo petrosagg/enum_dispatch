@@ -342,10 +342,13 @@ mod enum_dispatch_variant;
 mod expansion;
 /// Convenience trait for token parsing.
 mod filter_attrs;
+/// Codifies the kinds of generic arguments supported in an `#[enum_dispatch(T<...>)]` attribute.
+mod supported_generics;
 /// Convenience methods for constructing `syn` types.
 mod syn_utils;
 
 use crate::expansion::add_enum_impls;
+use crate::supported_generics::{convert_to_supported_generic, num_supported_generics};
 
 /// Annotating a trait or enum definition with an `#[enum_dispatch]` attribute will register it
 /// with the enum_dispatch library, allowing it to be used to generate impl blocks elsewhere.
@@ -387,11 +390,11 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
     // be deferred until the missing definition is encountered.
     // For now, we assume it is already cached.
     if !attr.is_empty() {
-        syn::parse2::<enum_dispatch_arg_list::EnumDispatchArgList>(attr)
+        let attr_parse_result = syn::parse2::<enum_dispatch_arg_list::EnumDispatchArgList>(attr)
             .expect("Could not parse arguments to `#[enum_dispatch(...)]`.")
             .arg_list
             .into_iter()
-            .for_each(|p| {
+            .try_for_each(|p| {
                 if p.leading_colon.is_some() || p.segments.len() != 1 {
                     panic!("Paths in `#[enum_dispatch(...)]` are not supported.");
                 }
@@ -403,44 +406,50 @@ fn enum_dispatch2(attr: TokenStream, item: TokenStream) -> TokenStream {
                     syn::PathArguments::None => vec![],
                     syn::PathArguments::AngleBracketed(args) => {
                         assert!(args.colon2_token.is_none());
-                        args.args.iter().map(|generic_arg| {
-                            match generic_arg {
-                                syn::GenericArgument::Type(syn::Type::Path(t)) if t.qself.is_none() => Some(t.path.get_ident().expect("Generic binding paths in #[enum_dispatch(...)] are not supported").clone()),
-                                syn::GenericArgument::Type(syn::Type::Infer(_)) => None,
-                                syn::GenericArgument::Type(_) => panic!("Generics in #[enum_dispatch(...)] must be identifiers"),
-                                syn::GenericArgument::Lifetime(_) => panic!("Lifetime generics in #[enum_dispatch(...)] are not supported"),
-                                syn::GenericArgument::Binding(_) => panic!("Generic equality constraints in #[enum_dispatch(...)] are not supported"),
-                                syn::GenericArgument::Constraint(_) => panic!("Generic trait constraints in #[enum_dispatch(...)] are not supported"),
-                                syn::GenericArgument::Const(_) => panic!("Const expression generics in #[enum_dispatch(...)] are not supported"),
+                        match args.args.iter().map(convert_to_supported_generic).collect::<Result<Vec<_>, _>>() {
+                            Ok(v) => v,
+                            Err((unsupported, span)) => {
+                                let error_string = unsupported.to_string();
+                                return Err(quote::quote_spanned! {span=>
+                                    compile_error!(#error_string)
+                                });
                             }
-                        }).collect::<Vec<_>>()
+                        }
                     }
                     syn::PathArguments::Parenthesized(_) => panic!("Expected angle bracketed generic arguments, found parenthesized arguments"),
                 };
                 match &new_block {
                     attributed_parser::ParsedItem::Trait(traitdef) => {
-                        cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, traitdef.generics.type_params().count()))
+                        let supported_generics = num_supported_generics(&traitdef.generics);
+                        cache::defer_link((attr_name, attr_generics.len()), (&traitdef.ident, supported_generics))
                     }
                     attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
-                        cache::defer_link((attr_name, attr_generics.len()), (&enumdef.ident, enumdef.generics.type_params().count()))
+                        let supported_generics = num_supported_generics(&enumdef.generics);
+                        cache::defer_link((attr_name, attr_generics.len()), (&enumdef.ident, supported_generics))
                     }
                 }
+                Ok(())
             });
+        if let Err(e) = attr_parse_result {
+            return e;
+        }
     };
     // It would be much simpler to just always retrieve all definitions from the cache. However,
     // span information is not stored in the cache. Saving the newly retrieved definition prevents
     // *all* of the span information from being lost.
     match new_block {
         attributed_parser::ParsedItem::Trait(traitdef) => {
+            let supported_generics = num_supported_generics(&traitdef.generics);
             let additional_enums =
-                cache::fulfilled_by_trait(&traitdef.ident, traitdef.generics.type_params().count());
+                cache::fulfilled_by_trait(&traitdef.ident, supported_generics);
             for enumdef in additional_enums {
                 expanded.append_all(add_enum_impls(enumdef, traitdef.clone()));
             }
         }
         attributed_parser::ParsedItem::EnumDispatch(enumdef) => {
+            let supported_generics = num_supported_generics(&enumdef.generics);
             let additional_traits =
-                cache::fulfilled_by_enum(&enumdef.ident, enumdef.generics.type_params().count());
+                cache::fulfilled_by_enum(&enumdef.ident, supported_generics);
             for traitdef in additional_traits {
                 expanded.append_all(add_enum_impls(enumdef.clone(), traitdef));
             }
