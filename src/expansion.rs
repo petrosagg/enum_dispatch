@@ -221,7 +221,8 @@ fn create_trait_fn_call(
     trait_method: &syn::TraitItemMethod,
     trait_generics: &syn::TypeGenerics,
     trait_name: &syn::Ident,
-) -> syn::ExprCall {
+    is_async: bool,
+) -> syn::Expr {
     let trait_args = trait_method.to_owned().sig.inputs;
     let (method_type, mut args) = extract_fn_args(trait_args);
 
@@ -229,7 +230,7 @@ fn create_trait_fn_call(
     let explicit_self_arg = syn::Ident::new(FIELDNAME, trait_method.span());
     args.insert(0, plain_identifier_expr(explicit_self_arg));
 
-    syn::ExprCall {
+    let call = syn::Expr::from(syn::ExprCall {
         attrs: vec![],
         func: {
             if let MethodType::Static = method_type {
@@ -269,6 +270,17 @@ fn create_trait_fn_call(
         },
         paren_token: Default::default(),
         args,
+    });
+
+    if is_async {
+        syn::Expr::from(syn::ExprAwait {
+            attrs: Default::default(),
+            base: Box::new(call),
+            dot_token: Default::default(),
+            await_token: Default::default(),
+        })
+    } else {
+        call
     }
 }
 
@@ -280,8 +292,9 @@ fn create_match_expr(
     trait_name: &syn::Ident,
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
+    is_async: bool,
 ) -> syn::Expr {
-    let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name);
+    let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name, is_async);
 
     // Creates a Vec containing a match arm for every enum variant
     let match_arms = enumvariants
@@ -302,7 +315,7 @@ fn create_match_expr(
                 },
                 guard: None,
                 fat_arrow_token: Default::default(),
-                body: Box::new(syn::Expr::from(trait_fn_call.to_owned())),
+                body: Box::new(trait_fn_call.to_owned()),
                 comma: Some(Default::default()),
             }
         })
@@ -332,6 +345,7 @@ fn create_trait_match(
     match trait_item {
         syn::TraitItem::Method(mut trait_method) => {
             identify_signature_arguments(&mut trait_method.sig);
+            let is_async = trait_method.sig.asyncness.is_some();
 
             let match_expr = create_match_expr(
                 &trait_method,
@@ -339,6 +353,7 @@ fn create_trait_match(
                 trait_name,
                 enum_name,
                 enumvariants,
+                is_async,
             );
 
             let mut impl_attrs = trait_method.attrs.clone();
