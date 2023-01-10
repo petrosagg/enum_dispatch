@@ -9,6 +9,7 @@ readme = "README.md"
 keywords = ["speed", "performance", "traits", "dynamic", "optimization"]
 categories = ["rust-patterns", "development-tools::procedural-macro-helpers", "development-tools::cargo-plugins"]
 license = "MIT OR Apache-2.0"
+exclude = ["benches", "tests"]
 
 [lib]
 proc-macro = true
