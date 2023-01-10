@@ -221,7 +221,6 @@ fn create_trait_fn_call(
     trait_method: &syn::TraitItemMethod,
     trait_generics: &syn::TypeGenerics,
     trait_name: &syn::Ident,
-    is_async: bool,
 ) -> syn::Expr {
     let trait_args = trait_method.to_owned().sig.inputs;
     let (method_type, mut args) = extract_fn_args(trait_args);
@@ -230,7 +229,7 @@ fn create_trait_fn_call(
     let explicit_self_arg = syn::Ident::new(FIELDNAME, trait_method.span());
     args.insert(0, plain_identifier_expr(explicit_self_arg));
 
-    let call = syn::Expr::from(syn::ExprCall {
+    let mut call = syn::Expr::from(syn::ExprCall {
         attrs: vec![],
         func: {
             if let MethodType::Static = method_type {
@@ -272,16 +271,16 @@ fn create_trait_fn_call(
         args,
     });
 
-    if is_async {
-        syn::Expr::from(syn::ExprAwait {
+    if trait_method.sig.asyncness.is_some() {
+        call = syn::Expr::from(syn::ExprAwait {
             attrs: Default::default(),
             base: Box::new(call),
             dot_token: Default::default(),
             await_token: Default::default(),
-        })
-    } else {
-        call
+        });
     }
+
+    call
 }
 
 /// Constructs a match expression that matches on all variants of the specified enum, creating a
@@ -292,9 +291,8 @@ fn create_match_expr(
     trait_name: &syn::Ident,
     enum_name: &syn::Ident,
     enumvariants: &[&EnumDispatchVariant],
-    is_async: bool,
 ) -> syn::Expr {
-    let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name, is_async);
+    let trait_fn_call = create_trait_fn_call(trait_method, trait_generics, trait_name);
 
     // Creates a Vec containing a match arm for every enum variant
     let match_arms = enumvariants
@@ -345,7 +343,6 @@ fn create_trait_match(
     match trait_item {
         syn::TraitItem::Method(mut trait_method) => {
             identify_signature_arguments(&mut trait_method.sig);
-            let is_async = trait_method.sig.asyncness.is_some();
 
             let match_expr = create_match_expr(
                 &trait_method,
@@ -353,7 +350,6 @@ fn create_trait_match(
                 trait_name,
                 enum_name,
                 enumvariants,
-                is_async,
             );
 
             let mut impl_attrs = trait_method.attrs.clone();
