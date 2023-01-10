@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.10
+
+- Add support for async trait methods (#62)
+
 ## 0.3.9
 
 - Add support for const generics (#51, !25)
