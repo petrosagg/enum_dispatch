@@ -1,6 +1,6 @@
 [package]
 name = "enum_dispatch"
-version = "0.3.10"
+version = "0.3.11"
 authors = ["Anton Lazarev <https://antonok.com>"]
 edition = "2018"
 description = "Near drop-in replacement for dynamic-dispatched method calls with up to 10x the speed"

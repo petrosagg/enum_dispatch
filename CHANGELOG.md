@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.11
+
+- Add support for trait methods that return `Self` (#59, !29)
+
 ## 0.3.10
 
 - Add support for async trait methods (#62)
